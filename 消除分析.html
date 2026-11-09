@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>元素連鎖 消除分析器</title>
+<style>
+:root{--bg:#14121c;--panel:#1f1c2b;--line:#3a3550;--txt:#ece8f5;--mute:#9a93b0;--gold:#e8c46a}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at 50% 0,#2b2140,var(--bg) 60%);color:var(--txt);font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;min-height:100vh}
+.wrap{max-width:460px;margin:0 auto;padding:16px 14px 40px}
+h1{font-size:20px;margin:4px 0 2px;color:var(--gold);letter-spacing:2px;text-align:center}
+.sub{font-size:12px;color:var(--mute);text-align:center;margin-bottom:12px}
+.tabs{display:flex;gap:6px;margin-bottom:10px}
+.tabs button{flex:1}
+button{background:#2c2840;color:var(--txt);border:1px solid var(--line);border-radius:10px;padding:9px 6px;font-size:14px;cursor:pointer;font-family:inherit}
+button.on{background:var(--gold);color:#241a05;border-color:var(--gold);font-weight:700}
+button:disabled{opacity:.4;cursor:default}
+.board{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;background:#0f0d18;padding:8px;border-radius:14px;border:2px solid #6b5a33;position:relative}
+.cell{aspect-ratio:1;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;cursor:pointer;position:relative;user-select:none;transition:transform .18s,opacity .18s,box-shadow .18s;text-shadow:0 1px 3px #0008;border:2px solid #0004}
+.cell .sc{position:absolute;right:3px;bottom:1px;font-size:11px;font-weight:700;background:#000a;border-radius:6px;padding:0 4px;color:#fff}
+.cell.best{box-shadow:0 0 0 3px var(--gold),0 0 14px var(--gold)}
+.cell.zero{filter:brightness(.55) saturate(.6)}
+.cell.hit{transform:scale(.6);opacity:.15}
+.cell.flash{animation:fl .3s 2}
+@keyframes fl{50%{box-shadow:0 0 0 4px #fff,0 0 18px #fff}}
+.水{background:linear-gradient(145deg,#4aa8ff,#1d5fbf)}
+.火{background:linear-gradient(145deg,#ff7a4a,#c4271b)}
+.木{background:linear-gradient(145deg,#6fe06a,#25862b)}
+.光{background:linear-gradient(145deg,#ffe96a,#c99a10);color:#3a2a00;text-shadow:none}
+.暗{background:linear-gradient(145deg,#c06aff,#5b1f9a)}
+.Q{background:repeating-linear-gradient(45deg,#3b3650,#3b3650 6px,#33304a 6px,#33304a 12px);color:#bdb6d6}
+.palette{display:flex;gap:6px;margin:10px 0}
+.palette .cell{flex:1;font-size:18px;aspect-ratio:auto;height:42px}
+.palette .cell.sel{box-shadow:0 0 0 3px #fff}
+.row{display:flex;gap:6px;margin-top:10px}
+.row button{flex:1}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px;font-size:14px;line-height:1.6}
+.card h3{margin:0 0 6px;font-size:15px;color:var(--gold)}
+.stat{display:flex;justify-content:space-around;text-align:center}
+.stat b{display:block;font-size:22px;color:var(--gold)}
+.stat span{font-size:12px;color:var(--mute)}
+ol{margin:4px 0;padding-left:20px}
+.hint{font-size:12px;color:var(--mute)}
+.pick{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;z-index:9}
+.pick .box{background:var(--panel);padding:14px;border-radius:14px;border:1px solid var(--line);width:300px}
+.pick .palette{margin:8px 0 0}
+label{font-size:13px;color:var(--mute)}
+select{background:#2c2840;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>元素連鎖 消除分析器</h1>
+  <div class="sub">點一顆珠子消除 → 上方掉落 → 橫/直 3 連以上消除並連鎖</div>
+
+  <div class="tabs">
+    <button id="mPlay" class="on">點擊消除</button>
+    <button id="mEdit">編輯盤面</button>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div id="editBar" style="display:none">
+    <div class="palette" id="palette"></div>
+    <div class="hint">選好屬性後點格子塗上；「?」代表未知的天降珠。</div>
+  </div>
+
+  <div class="row">
+    <button id="undo">↶ 上一步</button>
+    <button id="reset">設定盤面</button>
+    <button id="heat" class="on">顯示分數</button>
+  </div>
+
+  <div class="card">
+    <h3>📊 分析結果</h3>
+    <div class="stat">
+      <div><b id="sBest">-</b><span>最佳單點</span></div>
+      <div><b id="sCnt">-</b><span>Combo 數</span></div>
+      <div><b id="sWave">-</b><span>消除顆數</span></div>
+    </div>
+    <div style="margin-top:8px">
+      <label>多步搜尋深度 <select id="depth"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option></select></label>
+      <div id="seq" style="margin-top:6px"></div>
+    </div>
+    <div class="hint" style="margin-top:6px">格子右下角數字 = 點這格「確定」能打出的 Combo 數（只算已知珠，「?」不參與）。金框 = 最佳。<br>排序：Combo 多 → 步數少 → 消除顆數多。同一波中，相連的同色珠算 1 Combo。</div>
+  </div>
+
+  <div class="card">
+    <h3>📝 本次紀錄</h3>
+    <div id="log" class="hint">尚未操作</div>
+  </div>
+</div>
+
+<div class="pick" id="setDlg"><div class="box" style="width:min(420px,94vw);max-height:94vh;overflow:auto">
+  <div style="margin-bottom:8px">上傳截圖設定盤面</div>
+  <label class="upl" style="display:block;margin-bottom:8px"><input type="file" id="imgIn" accept="image/*" style="display:none"><span style="display:block;text-align:center;background:#2c2840;border:1px dashed var(--gold);border-radius:10px;padding:9px;color:var(--gold);cursor:pointer">📷 上傳遊戲截圖自動辨識</span></label>
+  <div class="hint" style="margin:-4px 0 8px;text-align:center">電腦上也可以直接拖曳圖片進來，或複製圖片後按 Ctrl+V 貼上</div>
+  <div id="imgArea" style="display:none;margin-bottom:8px">
+    <div class="hint">拖曳金框對準 5×5 盤面，框內每格左上角的屬性圖示要落在格子左上角</div>
+    <div style="text-align:center"><canvas id="imgCv" style="max-width:100%;max-height:48vh;touch-action:none;border-radius:8px;cursor:move"></canvas></div>
+    <label>框的大小 <input type="range" id="imgSz" min="20" max="100" step="0.2" style="width:60%;vertical-align:middle"></label>
+  </div>
+  <textarea id="setTxt" rows="5" hidden inputmode="numeric" style="width:100%;font-size:22px;letter-spacing:6px;font-family:monospace;background:#0f0d18;color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px"></textarea>
+  <div id="setMsg" class="hint" style="min-height:18px;margin-top:4px"></div>
+  <div id="setPrev" class="board" style="margin-top:6px"></div>
+  <div class="row"><button id="setCancel">取消</button><button id="setOk" class="on">確定</button></div>
+</div></div>
+<div class="pick" id="pick"><div class="box">
+  <div>天降珠是什麼屬性？</div>
+  <div class="palette" id="pickPal"></div>
+  <div class="row"><button id="pickCancel">取消</button></div>
+</div></div>
+
+<script>
+const N=5, EL=['水','火','木','光','暗'], Q='?';
+const START=Array(5).fill('?????');
+let g=START.map(r=>[...r]), hist=[], mode='play', brush='水', showHeat=true, busy=false, logs=[], pickAt=null;
+const $=id=>document.getElementById(id);
+const clone=b=>b.map(r=>r.slice());
+
+function fall(b){for(let c=0;c<N;c++){const col=[];for(let r=0;r<N;r++)if(b[r][c]!=='.')col.push(b[r][c]);while(col.length<N)col.unshift(Q);for(let r=0;r<N;r++)b[r][c]=col[r];}}
+function find(b){const m=new Set();for(let r=0;r<N;r++)for(let c=0;c<N;c++){const v=b[r][c];if(v===Q||v==='.')continue;
+  if(c+2<N&&b[r][c+1]===v&&b[r][c+2]===v){for(let k=c;k<N&&b[r][k]===v;k++)m.add(r*N+k)}
+  if(r+2<N&&b[r+1][c]===v&&b[r+2][c]===v){for(let k=r;k<N&&b[k][c]===v;k++)m.add(k*N+c)}}return m}
+// 回傳每段的狀態，供動畫與計分
+function groups(b,m){const seen=new Set();let n=0;for(const i of m){if(seen.has(i))continue;n++;const st=[i];seen.add(i);const v=b[i/N|0][i%N];while(st.length){const x=st.pop(),r=x/N|0,c=x%N;for(const[dr,dc]of[[1,0],[-1,0],[0,1],[0,-1]]){const rr=r+dr,cc=c+dc,k=rr*N+cc;if(rr<0||cc<0||rr>=N||cc>=N||seen.has(k)||!m.has(k)||b[rr][cc]!==v)continue;seen.add(k);st.push(k)}}}return n}
+function simulate(b,r,c){b=clone(b);const frames=[];b[r][c]='.';frames.push({b:clone(b),m:new Set([r*N+c])});fall(b);let tot=0,waves=0,combo=0,byEl={};
+  while(true){const m=find(b);if(!m.size)break;waves++;combo+=groups(b,m);tot+=m.size;frames.push({b:clone(b),m});m.forEach(i=>{const v=b[i/N|0][i%N];byEl[v]=(byEl[v]||0)+1;b[i/N|0][i%N]='.'});fall(b)}
+  return {tot,waves,combo,b,frames,byEl}}
+function better(a,b){if(a.combo!==b.combo)return a.combo>b.combo;if(a.waves!==b.waves)return a.waves>b.waves;return a.tot>b.tot}
+const name=(r,c)=>`第${r+1}列第${c+1}行`;
+
+function render(hl,hit){const bd=$('board');bd.innerHTML='';let scores=null,bestK=-1;
+  if(!busy&&mode==='play'){scores=[];let bs={tot:-1,waves:-1,combo:-1};for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(g[r][c]===Q){scores.push(null);continue}const s=simulate(g,r,c);scores.push(s);if(better(s,bs)){bs=s;bestK=r*N+c}}
+    if(bs.combo<=0)bestK=-1;$('sBest').textContent=bestK<0?'無':`${(bestK/N|0)+1}-${bestK%N+1}`;$('sCnt').textContent=bestK<0?0:bs.combo;$('sWave').textContent=bestK<0?0:bs.tot;updSeq()}
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){const v=g[r][c],k=r*N+c,d=document.createElement('div');d.className='cell '+(v===Q?'Q':v===' '?'':v);d.textContent=v==='.'?'':v;
+    if(scores&&showHeat&&scores[k]){const sp=document.createElement('span');sp.className='sc';sp.textContent=scores[k].combo;d.appendChild(sp);if(scores[k].combo===0)d.classList.add('zero')}
+    if(k===bestK&&showHeat)d.classList.add('best');if(hl&&hl.has(k))d.classList.add('flash');if(hit&&hit.has(k))d.classList.add('hit');
+    d.onclick=()=>onCell(r,c);bd.appendChild(d)}}
+const WSRC=`const N=5,Q='?';
+function simS(s,i){ // s: string 25, returns [combo,tot,waves,newS]
+  const b=s.split('');b[i]='.';fall(b);let combo=0,tot=0,waves=0;
+  while(true){const m=find(b);if(!m.length)break;waves++;tot+=m.length;combo+=groups(b,m);for(const k of m)b[k]='.';fall(b)}
+  return [combo,tot,waves,b.join('')]}
+function fall(b){for(let c=0;c<N;c++){let w=N-1;for(let r=N-1;r>=0;r--){const v=b[r*N+c];if(v!=='.'){b[w*N+c]=v;w--}}for(;w>=0;w--)b[w*N+c]=Q}}
+function find(b){const m=new Uint8Array(25);let any=false;for(let r=0;r<N;r++)for(let c=0;c<N;c++){const v=b[r*N+c];if(v===Q)continue;
+  if(c+2<N&&b[r*N+c+1]===v&&b[r*N+c+2]===v){m[r*N+c]=m[r*N+c+1]=m[r*N+c+2]=1;any=true}
+  if(r+2<N&&b[(r+1)*N+c]===v&&b[(r+2)*N+c]===v){m[r*N+c]=m[(r+1)*N+c]=m[(r+2)*N+c]=1;any=true}}
+  const out=[];if(any)for(let i=0;i<25;i++)if(m[i])out.push(i);return out}
+function groups(b,list){const m=new Set(list),seen=new Set();let n=0;for(const i of list){if(seen.has(i))continue;n++;const st=[i];seen.add(i);const v=b[i];while(st.length){const x=st.pop(),r=x/N|0,c=x%N;for(const[dr,dc]of[[1,0],[-1,0],[0,1],[0,-1]]){const rr=r+dr,cc=c+dc,k=rr*N+cc;if(rr<0||cc<0||rr>=N||cc>=N||seen.has(k)||!m.has(k)||b[k]!==v)continue;seen.add(k);st.push(k)}}}return n}
+function bt(a,b){if(a.combo!==b.combo)return a.combo>b.combo;if(a.steps!==b.steps)return a.steps<b.steps;if(a.waves!==b.waves)return a.waves>b.waves;return a.tot>b.tot}
+function solve(s,d,memo){const key=s+d;const h=memo.get(key);if(h)return h;
+  let best={combo:0,tot:0,waves:0,steps:0,path:[]};const seenB=new Set();
+  for(let i=0;i<25;i++){if(s[i]===Q)continue;const [cb,t,w,ns]=simS(s,i);if(seenB.has(ns))continue;seenB.add(ns);
+    let cur={combo:cb,tot:t,waves:w,steps:t?1:0,path:[[i,cb,t,s[i]]]};
+    if(d>1){const sub=solve(ns,d-1,memo);if(sub.steps>0)cur={combo:cb+sub.combo,tot:t+sub.tot,waves:w+sub.waves,steps:1+sub.steps,path:cur.path.concat(sub.path)}}
+    if(bt(cur,best))best=cur}
+  memo.set(key,best);return best}
+
+let memo=new Map(),memoD=-1;
+onmessage=e=>{const{s,d,id}=e.data;if(memo.size>300000)memo=new Map();postMessage({id,r:solve(s,d,memo)})};`;
+let worker=null,reqId=0;
+let lastStr='',watchdog=null;
+function localSolve(str,d){const id=reqId;setTimeout(()=>{if(id!==reqId)return;try{const f=new Function(WSRC.split('let memo=')[0]+'return solve;')();showSeq(f(str,d,new Map()),d)}catch(e){$('seq').innerHTML='<span class="hint">❌ 計算失敗：'+e.message+'</span>'}},30)}
+function dropWorker(){try{worker&&worker.terminate()}catch(e){}worker=null}
+try{worker=new Worker(URL.createObjectURL(new Blob([WSRC],{type:'text/javascript'})));worker.onmessage=e=>{clearTimeout(watchdog);if(e.data.id===reqId)showSeq(e.data.r,curD)};worker.onerror=()=>{clearTimeout(watchdog);dropWorker();localSolve(lastStr,curD)}}catch(e){worker=null}
+let curD=3;
+function updSeq(){curD=+$('depth').value;const str=g.map(r=>r.join('')).join('');const el=$('seq');
+  el.innerHTML='<span class="hint">⏳ 計算中…</span>';reqId++;
+  lastStr=str;clearTimeout(watchdog);
+  if(worker){worker.postMessage({s:str,d:curD,id:reqId});const d=curD;watchdog=setTimeout(()=>{dropWorker();localSolve(str,d)},d<=3?2500:8000)}
+  else localSolve(str,curD)}
+function showSeq(res,d){const el=$('seq');
+  if(!res.steps){el.innerHTML='<span class="hint">目前已知珠子內沒有能形成三連的點法，等天降珠填入後再分析。</span>';return}
+  el.innerHTML=`<b>${d} 步內最佳：${res.steps} 步共 ${res.combo} Combo、消 ${res.tot} 顆</b><ol>`+res.path.map(([i,cb,t,v],k)=>`<li>點 ${name(i/N|0,i%N)}（${v}${k?'，掉落後位置':''}）→ ${cb} Combo／消 ${t}</li>`).join('')+'</ol><span class="hint">第 2 步以後的位置是以「掉落後」的盤面計算；若中途掉出的「?」先填好屬性，結果會更準。</span>'}
+async function onCell(r,c){if(busy)return;
+  if(mode==='edit'){hist.push(clone(g));g[r][c]=brush;render();return}
+  if(g[r][c]===Q){pickAt=[r,c];$('pick').style.display='flex';return}
+  const s=simulate(g,r,c);hist.push(clone(g));busy=true;
+  for(const f of s.frames){g=f.b;render(f.m);await sleep(380);render(null,f.m);await sleep(220)}
+  g=s.b;busy=false;const msg=`點 ${name(r,c)}：${s.combo} Combo，消 ${s.tot} 顆`+(s.tot?'（'+Object.entries(s.byEl).map(([k,v])=>k+v).join('、')+'）':'');
+  logs.unshift(msg);$('log').innerHTML=logs.slice(0,8).join('<br>');render()}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+function mkPal(el,withQ,fn){el.innerHTML='';(withQ?EL.concat([Q]):EL).forEach(v=>{const d=document.createElement('div');d.className='cell '+(v===Q?'Q':v);d.textContent=v;d.onclick=()=>fn(v,d);el.appendChild(d)})}
+mkPal($('palette'),true,(v,d)=>{brush=v;[...$('palette').children].forEach(x=>x.classList.remove('sel'));d.classList.add('sel')});$('palette').children[0].classList.add('sel');
+mkPal($('pickPal'),false,v=>{const[r,c]=pickAt;hist.push(clone(g));g[r][c]=v;$('pick').style.display='none';
+  // 填入後若立即成三連，直接結算
+  if(find(g).size){resolveNow()}else render()});
+async function resolveNow(){busy=true;let tot=0,w=0;while(true){const m=find(g);if(!m.size)break;w+=groups(g,m);tot+=m.size;render(m);await sleep(380);render(null,m);await sleep(220);m.forEach(i=>g[i/N|0][i%N]='.');fall(g)}
+  busy=false;logs.unshift(`天降填入後自動連鎖：${w} Combo，消 ${tot} 顆`);$('log').innerHTML=logs.slice(0,8).join('<br>');render()}
+$('pickCancel').onclick=()=>$('pick').style.display='none';
+$('mPlay').onclick=()=>{mode='play';$('mPlay').classList.add('on');$('mEdit').classList.remove('on');$('editBar').style.display='none';render()};
+$('mEdit').onclick=()=>{mode='edit';$('mEdit').classList.add('on');$('mPlay').classList.remove('on');$('editBar').style.display='block';render()};
+$('undo').onclick=()=>{if(busy||!hist.length)return;g=hist.pop();render()};
+const D2E={'1':'水','2':'火','3':'木','4':'光','5':'暗','0':Q},E2D={'水':'1','火':'2','木':'3','光':'4','暗':'5'};
+function parseTxt(){const d=$('setTxt').value.replace(/[^0-5]/g,'');return d}
+function setPreview(){const d=parseTxt(),pv=$('setPrev');pv.innerHTML='';for(let i=0;i<25;i++){const v=i<d.length?D2E[d[i]]:Q,x=document.createElement('div');x.className='cell '+(v===Q?'Q':v);x.style.fontSize='16px';x.textContent=v;x.onclick=()=>{const a=parseTxt().padEnd(25,'0').split('');const o='1234501';a[i]=o[o.indexOf(a[i])+1];$('setTxt').value=a.join('');setPreview()};pv.appendChild(x)}
+  $('setMsg').textContent=d.length===25?'辨識結果如下，認錯的格子可以點一下切換屬性':'請先上傳截圖'}
+$('reset').onclick=()=>{if(busy)return;$('setTxt').value=g.every(r=>r.every(v=>v===Q))?'':g.map(r=>r.map(v=>E2D[v]||'0').join('')).join('\n');$('setDlg').style.display='flex';$('imgArea').style.display='none';IMG=null;setPreview();};
+$('setTxt').oninput=setPreview;
+// ---- 截圖辨識 ----
+let IMG=null,IDATA=null,BOX=null,cvScale=1;
+async function loadAny(f){const errs=[];
+  try{return await createImageBitmap(f)}catch(e){errs.push('A:'+(e.name||e))}
+  try{const buf=await f.arrayBuffer();return await createImageBitmap(new Blob([buf],{type:f.type||'image/png'}))}catch(e){errs.push('B:'+(e.name||e))}
+  try{const url=await new Promise((ok,no)=>{const fr=new FileReader();fr.onload=()=>ok(fr.result);fr.onerror=()=>no(fr.error||new Error('FileReader'));fr.readAsDataURL(f)});return await imgFrom(url)}catch(e){errs.push('C:'+(e.name||e.message||e))}
+  try{return await imgFrom(URL.createObjectURL(f))}catch(e){errs.push('D:'+(e.name||e.message||e))}
+  try{const A=window.claude&&await window.claude.use('assets');if(!A)throw new Error('無上傳權限');$('setMsg').textContent='改用雲端上傳讀取中…';const up=await A.upload(f);
+    try{const r=await fetch(up.url);const bl=await r.blob();return await createImageBitmap(bl)}catch(e){errs.push('E1:'+(e.name||e.message))}
+    const im=await imgFrom(up.url);const t=document.createElement('canvas');t.width=t.height=1;const tx=t.getContext('2d');tx.drawImage(im,0,0);tx.getImageData(0,0,1,1);return im}catch(e){errs.push('E:'+(e.name||e.message||e))}
+  throw new Error(errs.join(' / '))}
+function imgFrom(src){return new Promise((ok,no)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=()=>no(new Error('decode'));im.src=src})}
+async function useFile(f){if(!f)return;$('setMsg').textContent='讀取圖片中…';
+  try{const im=await loadAny(f);IMG=im;const oc=document.createElement('canvas');oc.width=im.width;oc.height=im.height;const x=oc.getContext('2d',{willReadFrequently:true});x.drawImage(im,0,0);IDATA=x.getImageData(0,0,im.width,im.height);
+    BOX={x:im.width*0.1333,y:im.height*0.3214,s:im.width*0.7291};$('imgSz').value=BOX.s/im.width*100;$('imgArea').style.display='block';drawImg();recog()}
+  catch(err){$('setMsg').textContent='❌ 讀取失敗（'+(f.type||'未知格式')+'，'+Math.round((f.size||0)/1024)+'KB）：'+err.message+'。可改用「複製圖片後在此頁貼上」'}}
+$('imgIn').onchange=e=>{const f=e.target.files&&e.target.files[0];useFile(f);setTimeout(()=>{e.target.value=''},0)};
+document.addEventListener('paste',e=>{if($('setDlg').style.display!=='flex')return;const it=[...(e.clipboardData&&e.clipboardData.items||[])].find(i=>i.type.startsWith('image/'));if(it){e.preventDefault();useFile(it.getAsFile())}});
+$('setDlg').addEventListener('dragover',e=>e.preventDefault());
+$('setDlg').addEventListener('drop',e=>{e.preventDefault();const f=[...e.dataTransfer.files].find(f=>f.type.startsWith('image/'))||e.dataTransfer.files[0];useFile(f)});
+function drawImg(){const cv=$('imgCv'),maxH=window.innerHeight*0.48,maxW=Math.min(400,window.innerWidth*0.88);cvScale=Math.min(maxW/IMG.width,maxH/IMG.height);
+  const dpr=window.devicePixelRatio||1;cv.width=IMG.width*cvScale*dpr;cv.height=IMG.height*cvScale*dpr;cv.style.width=IMG.width*cvScale+'px';cv.style.height=IMG.height*cvScale+'px';
+  const x=cv.getContext('2d');x.setTransform(dpr*cvScale,0,0,dpr*cvScale,0,0);x.drawImage(IMG,0,0);x.lineWidth=3/cvScale;x.strokeStyle='#e8c46a';x.strokeRect(BOX.x,BOX.y,BOX.s,BOX.s);
+  x.lineWidth=1.2/cvScale;x.strokeStyle='#e8c46acc';const c=BOX.s/5;for(let i=1;i<5;i++){x.beginPath();x.moveTo(BOX.x+i*c,BOX.y);x.lineTo(BOX.x+i*c,BOX.y+BOX.s);x.moveTo(BOX.x,BOX.y+i*c);x.lineTo(BOX.x+BOX.s,BOX.y+i*c);x.stroke()}}
+function hueAt(px,py){const i=((py|0)*IMG.width+(px|0))*4,d=IDATA.data;const r=d[i]/255,g2=d[i+1]/255,b=d[i+2]/255,mx=Math.max(r,g2,b),mn=Math.min(r,g2,b),v=mx,s2=mx?(mx-mn)/mx:0;if(s2<0.5||v<0.45)return -1;
+  let h;const dd=mx-mn;if(mx===r)h=((g2-b)/dd)%6;else if(mx===g2)h=(b-r)/dd+2;else h=(r-g2)/dd+4;h*=60;if(h<0)h+=360;return h}
+function hue2d(h){if(h<35||h>=340)return'2';if(h<70)return'4';if(h<170)return'3';if(h<260)return'1';return'5'}
+function recog(){const c=BOX.s/5;let out='';for(let r=0;r<5;r++){for(let cc=0;cc<5;cc++){const bx=BOX.x+cc*c,by=BOX.y+r*c,hs=[];
+  for(let i=4;i<24;i+=2)for(let j=4;j<24;j+=2){const px=bx+c*i/100,py=by+c*j/100;if(px<0||py<0||px>=IMG.width||py>=IMG.height)continue;const h=hueAt(px,py);if(h>=0)hs.push(h)}
+  hs.sort((a,b)=>a-b);out+=hs.length>=8?hue2d(hs[hs.length>>1]):'0'}out+='\n'}$('setTxt').value=out.trim();setPreview()}
+let drag=null;
+$('imgCv').onpointerdown=e=>{if(!IMG)return;const rc=$('imgCv').getBoundingClientRect(),px=(e.clientX-rc.left)/cvScale,py=(e.clientY-rc.top)/cvScale;drag={dx:px-BOX.x,dy:py-BOX.y};
+  if(px<BOX.x||py<BOX.y||px>BOX.x+BOX.s||py>BOX.y+BOX.s)drag={dx:BOX.s/2,dy:BOX.s/2};$('imgCv').setPointerCapture(e.pointerId);move(e)};
+function move(e){if(!drag)return;const rc=$('imgCv').getBoundingClientRect(),px=(e.clientX-rc.left)/cvScale,py=(e.clientY-rc.top)/cvScale;BOX.x=px-drag.dx;BOX.y=py-drag.dy;drawImg();recog()}
+$('imgCv').onpointermove=move;$('imgCv').onpointerup=$('imgCv').onpointercancel=()=>{drag=null};
+$('imgSz').oninput=()=>{if(!IMG)return;const cx=BOX.x+BOX.s/2,cy=BOX.y+BOX.s/2;BOX.s=IMG.width*$('imgSz').value/100;BOX.x=cx-BOX.s/2;BOX.y=cy-BOX.s/2;drawImg();recog()};
+$('setCancel').onclick=()=>$('setDlg').style.display='none';
+$('setOk').onclick=()=>{const d=parseTxt();if(d.length!==25){$('setMsg').textContent='請先上傳截圖';return}
+  hist.push(clone(g));g=[];for(let r=0;r<N;r++){g.push([]);for(let c=0;c<N;c++)g[r].push(D2E[d[r*N+c]])}
+  logs=[];$('log').textContent='尚未操作';$('setDlg').style.display='none';render()};
+$('heat').onclick=()=>{showHeat=!showHeat;$('heat').classList.toggle('on',showHeat);render()};
+$('depth').onchange=()=>render();
+render();
+</script>
+</body>
+</html>
