@@ -80,7 +80,7 @@ select{background:#2c2840;color:var(--txt);border:1px solid var(--line);border-r
       <div><b id="sWave">-</b><span>步數</span></div>
     </div>
     <div style="margin-top:8px">
-      <label>多步搜尋深度 <select id="depth"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option></select></label>
+      <label>多步搜尋深度 <select id="depth"><option>1</option><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option></select></label>
       <div id="seq" style="margin-top:6px"></div>
     </div>
     <div class="hint" style="margin-top:6px">格子右下角數字 = 只點這一格能立刻打出的 Combo 數（只算已知珠，「?」不參與）。金框 = 多步搜尋最佳解的第 1 步（可能是不會消的鋪路步）。<br>排序：Combo 多 → 步數少 → 消除顆數多。同一波中，相連的同色珠算 1 Combo。</div>
@@ -165,7 +165,7 @@ let lastStr='',watchdog=null;
 function localSolve(str,d){const id=reqId;setTimeout(()=>{if(id!==reqId)return;try{const f=new Function(WSRC.split('let memo=')[0]+'return solve;')();showSeq(f(str,d,new Map()),d)}catch(e){$('seq').innerHTML='<span class="hint">❌ 計算失敗：'+e.message+'</span>'}},30)}
 function dropWorker(){try{worker&&worker.terminate()}catch(e){}worker=null}
 try{worker=new Worker(URL.createObjectURL(new Blob([WSRC],{type:'text/javascript'})));worker.onmessage=e=>{clearTimeout(watchdog);if(e.data.id===reqId)showSeq(e.data.r,curD)};worker.onerror=()=>{clearTimeout(watchdog);dropWorker();localSolve(lastStr,curD)}}catch(e){worker=null}
-let curD=3;
+let curD=4;
 function markPlan(k){const cs=$('board').children;for(let i=0;i<cs.length;i++)cs[i].classList.toggle('best',i===k&&showHeat);$('sBest').textContent=k<0?'無':`${(k/N|0)+1}-${k%N+1}`}
 function updSeq(){curD=+$('depth').value;$('sBest').textContent='…';$('sCnt').textContent='…';$('sWave').textContent='…';const str=g.map(r=>r.join('')).join('');const el=$('seq');
   el.innerHTML='<span class="hint">⏳ 計算中…</span>';reqId++;
