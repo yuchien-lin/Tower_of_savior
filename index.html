@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>消除分析器</title>
+<title>元素連鎖 消除分析器</title>
 <style>
 :root{--bg:#14121c;--panel:#1f1c2b;--line:#3a3550;--txt:#ece8f5;--mute:#9a93b0;--gold:#e8c46a}
 *{box-sizing:border-box}
@@ -75,15 +75,15 @@ select{background:#2c2840;color:var(--txt);border:1px solid var(--line);border-r
   <div class="card">
     <h3>📊 分析結果</h3>
     <div class="stat">
-      <div><b id="sBest">-</b><span>最佳單點</span></div>
-      <div><b id="sCnt">-</b><span>Combo 數</span></div>
-      <div><b id="sWave">-</b><span>消除顆數</span></div>
+      <div><b id="sBest">-</b><span>下一步點</span></div>
+      <div><b id="sCnt">-</b><span>總 Combo</span></div>
+      <div><b id="sWave">-</b><span>步數</span></div>
     </div>
     <div style="margin-top:8px">
       <label>多步搜尋深度 <select id="depth"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option></select></label>
       <div id="seq" style="margin-top:6px"></div>
     </div>
-    <div class="hint" style="margin-top:6px">格子右下角數字 = 點這格「確定」能打出的 Combo 數（只算已知珠，「?」不參與）。金框 = 最佳。<br>排序：Combo 多 → 步數少 → 消除顆數多。同一波中，相連的同色珠算 1 Combo。</div>
+    <div class="hint" style="margin-top:6px">格子右下角數字 = 只點這一格能立刻打出的 Combo 數（只算已知珠，「?」不參與）。金框 = 多步搜尋最佳解的第 1 步（可能是不會消的鋪路步）。<br>排序：Combo 多 → 步數少 → 消除顆數多。同一波中，相連的同色珠算 1 Combo。</div>
   </div>
 
   <div class="card">
@@ -133,7 +133,7 @@ const name=(r,c)=>`第${r+1}列第${c+1}行`;
 
 function render(hl,hit){const bd=$('board');bd.innerHTML='';let scores=null,bestK=-1;
   if(!busy&&mode==='play'){scores=[];let bs={tot:-1,waves:-1,combo:-1};for(let r=0;r<N;r++)for(let c=0;c<N;c++){if(g[r][c]===Q){scores.push(null);continue}const s=simulate(g,r,c);scores.push(s);if(better(s,bs)){bs=s;bestK=r*N+c}}
-    if(bs.combo<=0)bestK=-1;$('sBest').textContent=bestK<0?'無':`${(bestK/N|0)+1}-${bestK%N+1}`;$('sCnt').textContent=bestK<0?0:bs.combo;$('sWave').textContent=bestK<0?0:bs.tot;updSeq()}
+    bestK=-1;updSeq()}
   for(let r=0;r<N;r++)for(let c=0;c<N;c++){const v=g[r][c],k=r*N+c,d=document.createElement('div');d.className='cell '+(v===Q?'Q':v===' '?'':v);d.textContent=v==='.'?'':v;
     if(scores&&showHeat&&scores[k]){const sp=document.createElement('span');sp.className='sc';sp.textContent=scores[k].combo;d.appendChild(sp);if(scores[k].combo===0)d.classList.add('zero')}
     if(k===bestK&&showHeat)d.classList.add('best');if(hl&&hl.has(k))d.classList.add('flash');if(hit&&hit.has(k))d.classList.add('hit');
@@ -166,12 +166,14 @@ function localSolve(str,d){const id=reqId;setTimeout(()=>{if(id!==reqId)return;t
 function dropWorker(){try{worker&&worker.terminate()}catch(e){}worker=null}
 try{worker=new Worker(URL.createObjectURL(new Blob([WSRC],{type:'text/javascript'})));worker.onmessage=e=>{clearTimeout(watchdog);if(e.data.id===reqId)showSeq(e.data.r,curD)};worker.onerror=()=>{clearTimeout(watchdog);dropWorker();localSolve(lastStr,curD)}}catch(e){worker=null}
 let curD=3;
-function updSeq(){curD=+$('depth').value;const str=g.map(r=>r.join('')).join('');const el=$('seq');
+function markPlan(k){const cs=$('board').children;for(let i=0;i<cs.length;i++)cs[i].classList.toggle('best',i===k&&showHeat);$('sBest').textContent=k<0?'無':`${(k/N|0)+1}-${k%N+1}`}
+function updSeq(){curD=+$('depth').value;$('sBest').textContent='…';$('sCnt').textContent='…';$('sWave').textContent='…';const str=g.map(r=>r.join('')).join('');const el=$('seq');
   el.innerHTML='<span class="hint">⏳ 計算中…</span>';reqId++;
   lastStr=str;clearTimeout(watchdog);
   if(worker){worker.postMessage({s:str,d:curD,id:reqId});const d=curD;watchdog=setTimeout(()=>{dropWorker();localSolve(str,d)},d<=3?2500:8000)}
   else localSolve(str,curD)}
-function showSeq(res,d){const el=$('seq');
+function showSeq(res,d){const el=$('seq');if(busy)return;
+  markPlan(res.steps?res.path[0][0]:-1);$('sCnt').textContent=res.combo;$('sWave').textContent=res.steps;
   if(!res.steps){el.innerHTML='<span class="hint">目前已知珠子內沒有能形成三連的點法，等天降珠填入後再分析。</span>';return}
   el.innerHTML=`<b>${d} 步內最佳：${res.steps} 步共 ${res.combo} Combo、消 ${res.tot} 顆</b><ol>`+res.path.map(([i,cb,t,v],k)=>`<li>點 ${name(i/N|0,i%N)}（${v}${k?'，掉落後位置':''}）→ ${cb} Combo／消 ${t}</li>`).join('')+'</ol><span class="hint">第 2 步以後的位置是以「掉落後」的盤面計算；若中途掉出的「?」先填好屬性，結果會更準。</span>'}
 async function onCell(r,c){if(busy)return;
